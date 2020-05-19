@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+from re import sub
+from sh import kubectl, helm, env2helm, stern, ErrorReturnCode
+from sys import stdout
+import os
+import logging
+
+
+def main():
+    args = prepinput("debug", boolean=True)
+    if args["debug"]:
+        logging.basicConfig(format="%(levelname)s: %(message)s", stream=stdout, level=logging.DEBUG)
+    else:
+        logging.basicConfig(format="%(levelname)s: %(message)s", stream=stdout, level=logging.INFO)
+    logging.getLogger("sh").setLevel(logging.WARNING)
+
+    args = prepinput("kube_config", "helm_release", "helm_namespace", "helm_chart", args=args, required=True)
+    args = prepinput("kube_context", "stubify_vars", "helm_values_file", "helm_timeout", args=args)
+    args = prepinput("helm_atomic", "helm_wait", "tail", args=args, boolean=True)
+    if args["tail"]:
+        args = prepinput("tail_selector", "tail_until", "tail_timeout", args=args, required=True)
+
+    args["stubify_vars"] = strtolist(args["stubify_vars"])
+
+    # Write 'kube_config' contents to ~/.kube/config
+    writeconfig(args["kube_config"], os.path.expanduser("~") + "/.kube/config")
+    if args["debug"]:
+        logging.debug(f'Written {os.path.expanduser("~") + "/.kube/config"} with contents:')
+        for line in catfile(os.path.expanduser("~") + "/.kube/config"):
+            logging.debug(line)
+
+    if "kube_context" in args:
+        kubectl_output = kubectl("config", "use-context", args["kube_context"])
+        logging.info(kubectl_output)
+
+    # Stubify variables listed in "stubify_vars"
+    if "stubify_vars" in args:
+        for i in args["stubify_vars"]:
+            if i not in os.environ:
+                logging.warning(f"Couldn't find env var {i} to stubify. Skipping.")
+            else:
+                stub = stubify(os.environ[i])
+                logging.debug(f'Stubified {i} from "{os.environ[i]}" to "{stub}"')
+                os.environ[i] = stubify(os.environ[i])
+
+    # Expand indirect variable references in env vars
+    for i in os.environ:
+        original = os.environ[i]
+        expanded = os.path.expandvars(os.environ[i])
+        if original != expanded:
+            os.environ[i] = expanded
+            logging.debug(f"Expanded env var {i} from {original} to {expanded}")
+
+    # Expand indirect variable references in args
+    for i in args:
+        original = args[i]
+        if isinstance(args[i], str):
+            expanded = os.path.expandvars(args[i])
+            if original != expanded:
+                args[i] = expanded
+                logging.debug(f"Expanded input {i} from {original} to {expanded}")
+
+    # Process "values_file" with env2helm
+    if "helm_values_file" in args:
+        values_file = args["helm_values_file"]
+    else:
+        values_file = os.path.join(args["helm_chart"], "values.yaml")
+    logging.info(f"Processing {values_file} with env2helm")
+    env2helm("--in-place", "--strict", "--to-string", "--file", values_file)
+    if args["debug"]:
+        logging.debug(f"Processed {values_file}:")
+        for line in catfile(values_file):
+            logging.debug(line)
+
+    # Build helm args and run it
+    helm_extra_args = []
+    if args["helm_atomic"]:
+        helm_extra_args.append("--atomic")
+    if args["debug"]:
+        helm_extra_args.append("--debug")
+    if args["helm_wait"]:
+        helm_extra_args.append("--wait")
+    if "helm_timeout" in args and args["helm_timeout"]:
+        helm_extra_args += ["--timeout", f'{args["helm_timeout"]}s']
+    helm_args = ["upgrade", args["helm_release"], "--install", "--namespace", args["helm_namespace"], "--create-namespace", "--values", values_file]
+    helm_args += helm_extra_args
+    helm_args.append(args["helm_chart"])
+    helm_exit_code = 0
+    try:
+        logging.info(f'Running Helm: "helm {" ".join(helm_args)}"')
+        helm_cmd = helm(helm_args, _out="/dev/stdout")
+    except sh.ErrorReturnCode as e:
+        helm_exit_code = e.exit_code
+        if args["tail"]:
+            print(e)
+            logging.error(f"Helm failed. Will tail logs.")
+            pass
+        else:
+            logging.error(f"Helm failed.")
+            raise (e)
+
+    logging.debug(f'Setting kubectl namespace to {args["helm_namespace"]}')
+    kubectl_cmd = kubectl("config", "set-context", "--current", "--namespace", args["helm_namespace"])
+    logging.debug(kubectl_cmd)
+
+    # Pod log tailing
+    if args["tail"]:
+        logging.info(f'Tailing pods matching selector "{args["tail_selector"]}". Looking for string "{args["tail_until"]}".')
+        result = taillogs(selector=args["tail_selector"], string=args["tail_until"], timeout=int(args["tail_timeout"]))
+        if result:
+            logging.info(f'Found string "{args["tail_until"]}". Finishing tail.')
+        else:
+            logging.error(f'Timeout out after {args["tail_timeout"]} seconds. Failing.')
+            exit(2)
+
+    if helm_exit_code > 0:
+        exit(helm_exit_code)
+
+
+def writeconfig(content, path):
+    os.mkdir(os.path.dirname(path))
+    with open(path, "w") as file:
+        file.write(content)
+    os.chmod(path, 0o700)
+
+
+def catfile(path):
+    content = []
+    with open(path, "r") as file:
+        for line in file.readlines():
+            content.append(line.rstrip())
+    return content
+
+
+def stubify(s):
+    stub = s.replace("refs/heads/", "").replace("refs/tags/", "")
+    stub = sub("[^0-9a-zA-Z]+", "-", stub)
+    stub = stub.lower()
+    stub = stub[:48]
+    return stub
+
+
+def strtobool(s):
+    return s.lower() in ["true", "1", "t", "y", "yes"]
+
+
+def strtolist(v):
+    v_split = v.splitlines()
+    if len(v_split) > 1:
+        return [s for s in v_split if s]
+    else:
+        return v_split[0].replace(" ", ",").split(",")
+
+
+def prepinput(*inputs, args={}, required=False, boolean=False):
+    for arg in inputs:
+        env_name = f"INPUT_{arg}".upper()
+        if env_name not in os.environ:
+            if required:
+                logging.error(f'Missing "{arg}" input.')
+                exit(2)
+            if boolean:
+                args[arg] = False
+        else:
+            if boolean:
+                args[arg] = strtobool(os.environ[env_name])
+            else:
+                args[arg] = os.environ[env_name]
+    return args
+
+
+def taillogs(selector, string, timeout):
+    try:
+        process = stern("--selector", selector, _timeout=timeout, _iter=True, _bg=True, _bg_exc=False)
+        for line in process:
+            print(line.rstrip())
+            if string in line:
+                process.terminate()
+                return True
+    except sh.TimeoutException:
+        return False
+
+
+if __name__ == "__main__":
+    main()
