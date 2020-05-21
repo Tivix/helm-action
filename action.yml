@@ -47,6 +47,15 @@ inputs:
   tail_timeout:
     description: 'How long to try tailing for.'
     required: false
+  rollout:
+    description: 'Will do a kubectl rollout status --wait'
+    required: false
+  rollout_deployment:
+    description: 'the deployment to track'
+    required: false
+  rollout_timeout:
+    description: 'How long to wait for rollout'
+    required: false
 runs:
   using: 'docker'
   image: 'Dockerfile'

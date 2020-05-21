@@ -16,9 +16,11 @@ def main():
 
     args = prepinput("kube_config", "helm_release", "helm_namespace", "helm_chart", args=args, required=True)
     args = prepinput("kube_context", "stubify_vars", "helm_values_file", "helm_timeout", args=args)
-    args = prepinput("helm_atomic", "helm_wait", "tail", args=args, boolean=True)
+    args = prepinput("helm_atomic", "helm_wait", "tail", "rollout", args=args, boolean=True)
     if args["tail"]:
         args = prepinput("tail_selector", "tail_until", "tail_timeout", args=args, required=True)
+    if args["rollout"]:
+        args = prepinput("rollout_deployment", "rollout_timeout", args=args, required=True)
 
     args["stubify_vars"] = strtolist(args["stubify_vars"])
 
@@ -105,13 +107,20 @@ def main():
 
     # Pod log tailing
     if args["tail"]:
-        logging.info(f'Tailing pods matching selector "{args["tail_selector"]}". Looking for string "{args["tail_until"]}".')
+        logging.info(f'Tailing pods matching selector "{args["tail_selector"]}". Waiting for string "{args["tail_until"]}".')
         result = taillogs(selector=args["tail_selector"], string=args["tail_until"], timeout=int(args["tail_timeout"]))
         if result:
             logging.info(f'Found string "{args["tail_until"]}". Finishing tail.')
         else:
             logging.error(f'Timeout out after {args["tail_timeout"]} seconds. Failing.')
             exit(2)
+
+    if args["rollout"] and helm_exit_code == 0:
+        deployment = "deployment/" + args["rollout_deployment"].replace("deployment/", "")
+        kubectl_args = ["rollout", "status", "--watch", "--timeout", f'{args["rollout_timeout"]}s', deployment]
+        logging.debug(f'Will wait for rollout of {deployment} using "kubectl {" ".join(kubectl_args)}"')
+        logging.info(f'Waiting for {deployment} rollout for {args["rollout_timeout"]} seconds.')
+        kubectl_cmd = kubectl(kubectl_args, _out="/dev/stdout")
 
     if helm_exit_code > 0:
         exit(helm_exit_code)
