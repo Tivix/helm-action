@@ -107,6 +107,7 @@ def main():
 
     # Pod log tailing
     if args["tail"]:
+        print()
         logging.info(f'Tailing pods matching selector "{args["tail_selector"]}". Waiting for string "{args["tail_until"]}".')
         result = taillogs(selector=args["tail_selector"], string=args["tail_until"], timeout=int(args["tail_timeout"]))
         if result:
@@ -118,9 +119,14 @@ def main():
     if args["rollout"] and helm_exit_code == 0:
         deployment = "deployment/" + args["rollout_deployment"].replace("deployment/", "")
         kubectl_args = ["rollout", "status", "--watch", "--timeout", f'{args["rollout_timeout"]}s', deployment]
-        logging.debug(f'Will wait for rollout of {deployment} using "kubectl {" ".join(kubectl_args)}"')
+        print()
         logging.info(f'Waiting {args["rollout_timeout"]} seconds for {deployment} to rollout.')
+        logging.debug(f'Will wait for rollout of {deployment} using "kubectl {" ".join(kubectl_args)}"')
         kubectl_cmd = kubectl(kubectl_args, _out="/dev/stdout")
+
+    print()
+    logging.info("Final Helm status:")
+    helm("status", args["helm_release"], _out="/dev/stdout")
 
     if helm_exit_code > 0:
         exit(helm_exit_code)
