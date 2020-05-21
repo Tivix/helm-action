@@ -155,17 +155,17 @@ def strtolist(v):
 def prepinput(*inputs, args={}, required=False, boolean=False):
     for arg in inputs:
         env_name = f"INPUT_{arg}".upper()
-        if env_name not in os.environ:
+        if env_name in os.environ:
+            if boolean:
+                args[arg] = strtobool(os.environ[env_name])
+            elif os.environ[env_name]:
+                args[arg] = os.environ[env_name]
+        else:
             if required:
                 logging.error(f'Missing "{arg}" input.')
                 exit(2)
             if boolean:
                 args[arg] = False
-        else:
-            if boolean:
-                args[arg] = strtobool(os.environ[env_name])
-            else:
-                args[arg] = os.environ[env_name]
     return args
 
 
