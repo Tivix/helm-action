@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from re import sub
-from sh import kubectl, helm, env2helm, stern, ErrorReturnCode
+from sh import kubectl, helm, env2helm, stern, ErrorReturnCode, ErrorReturnCode_1
 from sys import stdout
 import os
 import logging
@@ -119,7 +119,7 @@ def main():
         deployment = "deployment/" + args["rollout_deployment"].replace("deployment/", "")
         kubectl_args = ["rollout", "status", "--watch", "--timeout", f'{args["rollout_timeout"]}s', deployment]
         logging.debug(f'Will wait for rollout of {deployment} using "kubectl {" ".join(kubectl_args)}"')
-        logging.info(f'Waiting for {deployment} rollout for {args["rollout_timeout"]} seconds.')
+        logging.info(f'Waiting {args["rollout_timeout"]} seconds for {deployment} to rollout.')
         kubectl_cmd = kubectl(kubectl_args, _out="/dev/stdout")
 
     if helm_exit_code > 0:
