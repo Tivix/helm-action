@@ -19,7 +19,7 @@ inputs:
     required: true
   helm_chart:
     description: 'Helm chart path.'
-    required: true
+    required: false
   helm_namespace:
     description: 'Namespace to deploy to. You can use env vars here.'
     required: true
@@ -55,6 +55,12 @@ inputs:
     required: false
   rollout_timeout:
     description: 'How long to wait for rollout'
+    required: false
+  uninstall:
+    description: 'Makes this action uninstall a helm release'
+    required: false
+  delete_namespace:
+    description: 'Will delete the namespace provided.'
     required: false
 runs:
   using: 'docker'
