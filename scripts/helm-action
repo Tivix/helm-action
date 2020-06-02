@@ -14,13 +14,19 @@ def main():
         logging.basicConfig(format="%(levelname)s: %(message)s", stream=stdout, level=logging.INFO)
     logging.getLogger("sh").setLevel(logging.WARNING)
 
-    args = prepinput("kube_config", "helm_release", "helm_namespace", "helm_chart", args=args, required=True)
-    args = prepinput("kube_context", "stubify_vars", "helm_values_file", "helm_timeout", args=args)
-    args = prepinput("helm_atomic", "helm_wait", "tail", "rollout", args=args, boolean=True)
-    if args["tail"]:
-        args = prepinput("tail_selector", "tail_until", "tail_timeout", args=args, required=True)
-    if args["rollout"]:
-        args = prepinput("rollout_deployment", "rollout_timeout", args=args, required=True)
+    args = prepinput("kube_config", "helm_release", "helm_namespace", args=args, required=True)
+    args = prepinput("kube_context", "stubify_vars", "helm_timeout", args=args)
+    args = prepinput("uninstall", args=args, boolean=True)
+    if args["uninstall"]:
+        args = prepinput("delete_namespace", args=args, boolean=True)
+    else:
+        args = prepinput("helm_chart", args=args, required=True)
+        args = prepinput("helm_values_file", args=args)
+        args = prepinput("helm_atomic", "helm_wait", "tail", "rollout", args=args, boolean=True)
+        if args["tail"]:
+            args = prepinput("tail_selector", "tail_until", "tail_timeout", args=args, required=True)
+        if args["rollout"]:
+            args = prepinput("rollout_deployment", "rollout_timeout", args=args, required=True)
 
     args["stubify_vars"] = strtolist(args["stubify_vars"])
 
@@ -62,74 +68,89 @@ def main():
                 args[i] = expanded
                 logging.debug(f"Expanded input {i} from {original} to {expanded}")
 
-    # Process "values_file" with env2helm
-    if "helm_values_file" in args:
-        values_file = args["helm_values_file"]
-    else:
-        values_file = os.path.join(args["helm_chart"], "values.yaml")
-    logging.info(f"Processing {values_file} with env2helm")
-    env2helm("--in-place", "--strict", "--to-string", "--file", values_file)
-    if args["debug"]:
-        logging.debug(f"Processed {values_file}:")
-        for line in catfile(values_file):
-            logging.debug(line)
-
-    # Build helm args and run it
-    helm_extra_args = []
-    if args["helm_atomic"]:
-        helm_extra_args.append("--atomic")
-    if args["debug"]:
-        helm_extra_args.append("--debug")
-    if args["helm_wait"]:
-        helm_extra_args.append("--wait")
-    if "helm_timeout" in args and args["helm_timeout"]:
-        helm_extra_args += ["--timeout", f'{args["helm_timeout"]}s']
-    helm_args = ["upgrade", args["helm_release"], "--install", "--namespace", args["helm_namespace"], "--create-namespace", "--values", values_file]
-    helm_args += helm_extra_args
-    helm_args.append(args["helm_chart"])
-    helm_exit_code = 0
-    try:
+    if args["uninstall"]:
+        helm_extra_args = []
+        if args["debug"]:
+            helm_extra_args.append("--debug")
+        if "helm_timeout" in args and args["helm_timeout"]:
+            helm_extra_args += ["--timeout", f'{args["helm_timeout"]}s']
+        helm_args = ["--namespace", args["helm_namespace"], "uninstall", args["helm_release"]]
+        helm_args += helm_extra_args
         logging.info(f'Running Helm: "helm {" ".join(helm_args)}"')
         helm_cmd = helm(helm_args, _out="/dev/stdout")
-    except sh.ErrorReturnCode as e:
-        helm_exit_code = e.exit_code
+
+        if args["delete_namespace"]:
+            logging.info(f'Deleting namespace {args["helm_namespace"]}.')
+            kubectl("delete", "namespace", args["helm_namespace"])
+    else:
+        # Process "values_file" with env2helm
+        if "helm_values_file" in args:
+            values_file = args["helm_values_file"]
+        else:
+            values_file = os.path.join(args["helm_chart"], "values.yaml")
+        logging.info(f"Processing {values_file} with env2helm")
+        env2helm("--in-place", "--strict", "--to-string", "--file", values_file)
+        if args["debug"]:
+            logging.debug(f"Processed {values_file}:")
+            for line in catfile(values_file):
+                logging.debug(line)
+
+        # Build helm args and run it
+        helm_extra_args = []
+        if args["helm_atomic"]:
+            helm_extra_args.append("--atomic")
+        if args["debug"]:
+            helm_extra_args.append("--debug")
+        if args["helm_wait"]:
+            helm_extra_args.append("--wait")
+        if "helm_timeout" in args and args["helm_timeout"]:
+            helm_extra_args += ["--timeout", f'{args["helm_timeout"]}s']
+        helm_args = ["upgrade", args["helm_release"], "--install", "--namespace", args["helm_namespace"], "--create-namespace", "--values", values_file]
+        helm_args += helm_extra_args
+        helm_args.append(args["helm_chart"])
+        helm_exit_code = 0
+        try:
+            logging.info(f'Running Helm: "helm {" ".join(helm_args)}"')
+            helm_cmd = helm(helm_args, _out="/dev/stdout")
+        except sh.ErrorReturnCode as e:
+            helm_exit_code = e.exit_code
+            if args["tail"]:
+                print(e)
+                logging.error(f"Helm failed. Will tail logs.")
+                pass
+            else:
+                logging.error(f"Helm failed.")
+                raise (e)
+
+        logging.debug(f'Setting kubectl namespace to {args["helm_namespace"]}')
+        kubectl_cmd = kubectl("config", "set-context", "--current", "--namespace", args["helm_namespace"])
+        logging.debug(kubectl_cmd)
+
+        # Pod log tailing
         if args["tail"]:
-            print(e)
-            logging.error(f"Helm failed. Will tail logs.")
-            pass
-        else:
-            logging.error(f"Helm failed.")
-            raise (e)
+            print()
+            logging.info(f'Tailing pods matching selector "{args["tail_selector"]}". Waiting for string "{args["tail_until"]}".')
+            result = taillogs(selector=args["tail_selector"], string=args["tail_until"], timeout=int(args["tail_timeout"]))
+            if result:
+                logging.info(f'Found string "{args["tail_until"]}". Finishing tail.')
+            else:
+                logging.error(f'Timeout out after {args["tail_timeout"]} seconds. Failing.')
+                exit(2)
 
-    logging.debug(f'Setting kubectl namespace to {args["helm_namespace"]}')
-    kubectl_cmd = kubectl("config", "set-context", "--current", "--namespace", args["helm_namespace"])
-    logging.debug(kubectl_cmd)
+        if args["rollout"] and helm_exit_code == 0:
+            deployment = "deployment/" + args["rollout_deployment"].replace("deployment/", "")
+            kubectl_args = ["rollout", "status", "--watch", "--timeout", f'{args["rollout_timeout"]}s', deployment]
+            print()
+            logging.info(f'Waiting {args["rollout_timeout"]} seconds for {deployment} to rollout.')
+            logging.debug(f'Will wait for rollout of {deployment} using "kubectl {" ".join(kubectl_args)}"')
+            kubectl_cmd = kubectl(kubectl_args, _out="/dev/stdout")
 
-    # Pod log tailing
-    if args["tail"]:
         print()
-        logging.info(f'Tailing pods matching selector "{args["tail_selector"]}". Waiting for string "{args["tail_until"]}".')
-        result = taillogs(selector=args["tail_selector"], string=args["tail_until"], timeout=int(args["tail_timeout"]))
-        if result:
-            logging.info(f'Found string "{args["tail_until"]}". Finishing tail.')
-        else:
-            logging.error(f'Timeout out after {args["tail_timeout"]} seconds. Failing.')
-            exit(2)
+        logging.info("Final Helm status:")
+        helm("status", args["helm_release"], _out="/dev/stdout")
 
-    if args["rollout"] and helm_exit_code == 0:
-        deployment = "deployment/" + args["rollout_deployment"].replace("deployment/", "")
-        kubectl_args = ["rollout", "status", "--watch", "--timeout", f'{args["rollout_timeout"]}s', deployment]
-        print()
-        logging.info(f'Waiting {args["rollout_timeout"]} seconds for {deployment} to rollout.')
-        logging.debug(f'Will wait for rollout of {deployment} using "kubectl {" ".join(kubectl_args)}"')
-        kubectl_cmd = kubectl(kubectl_args, _out="/dev/stdout")
-
-    print()
-    logging.info("Final Helm status:")
-    helm("status", args["helm_release"], _out="/dev/stdout")
-
-    if helm_exit_code > 0:
-        exit(helm_exit_code)
+        if helm_exit_code > 0:
+            exit(helm_exit_code)
 
 
 def writeconfig(content, path):
