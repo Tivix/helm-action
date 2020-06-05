@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from re import sub
-from sh import kubectl, helm, env2helm, stern, ErrorReturnCode, ErrorReturnCode_1
+from sh import kubectl, helm, env2helm, stern, ErrorReturnCode, ErrorReturnCode_1, TimeoutException
 from sys import stdout
 import os
 import logging
@@ -217,7 +217,7 @@ def taillogs(selector, string, timeout):
             if string in line:
                 process.terminate()
                 return True
-    except sh.TimeoutException:
+    except TimeoutException:
         return False
 
 
