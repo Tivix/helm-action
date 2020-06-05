@@ -176,6 +176,7 @@ def stubify(s):
     stub = sub("[^0-9a-zA-Z]+", "-", stub)
     stub = stub.lower()
     stub = stub[:48]
+    stub = stub.rstrip("-")
     return stub
 
 
