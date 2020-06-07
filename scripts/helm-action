@@ -171,7 +171,7 @@ def catfile(path):
 def stubify(s):
     stub = s.replace("refs/heads/", "")
     stub = stub.replace("refs/tags/", "")
-    stub = stub.replace("refs/pull/", "pr")
+    stub = stub.replace("refs/pull/", "")
     stub = stub.replace("/merge", "")
     stub = sub("[^0-9a-zA-Z]+", "-", stub)
     stub = stub.lower()
