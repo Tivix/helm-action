@@ -28,7 +28,8 @@ def main():
         if args["rollout"]:
             args = prepinput("rollout_deployment", "rollout_timeout", args=args, required=True)
 
-    args["stubify_vars"] = strtolist(args["stubify_vars"])
+    if "stubify_vars" in args:
+        args["stubify_vars"] = strtolist(args["stubify_vars"])
 
     # Write 'kube_config' contents to ~/.kube/config
     writeconfig(args["kube_config"], os.path.expanduser("~") + "/.kube/config")
