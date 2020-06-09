@@ -113,7 +113,7 @@ def main():
         try:
             logging.info(f'Running Helm: "helm {" ".join(helm_args)}"')
             helm_cmd = helm(helm_args, _out="/dev/stdout")
-        except sh.ErrorReturnCode as e:
+        except ErrorReturnCode as e:
             helm_exit_code = e.exit_code
             if args["tail"]:
                 print(e)
