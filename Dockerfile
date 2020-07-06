@@ -1,5 +1,7 @@
 FROM alpine:3.11
 
+ENV PYTHONUNBUFFERED=1
+
 ENV helm_version=v3.2.1
 ENV helm_checksum=018f9908cb950701a5d59e757653a790c66d8eda288625dbb185354ca6f41f6b
 
