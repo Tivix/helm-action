@@ -19,6 +19,7 @@ def main():
     args = prepinput("uninstall", args=args, boolean=True)
     if args["uninstall"]:
         args = prepinput("delete_namespace", args=args, boolean=True)
+        args = prepinput("force", args=args, boolean=True)
     else:
         args = prepinput("helm_chart", args=args, required=True)
         args = prepinput("helm_values_file", args=args)
@@ -77,12 +78,27 @@ def main():
             helm_extra_args += ["--timeout", f'{args["helm_timeout"]}s']
         helm_args = ["--namespace", args["helm_namespace"], "uninstall", args["helm_release"]]
         helm_args += helm_extra_args
-        logging.info(f'Running Helm: "helm {" ".join(helm_args)}"')
-        helm_cmd = helm(helm_args, _out="/dev/stdout")
+        try:
+            logging.info(f'Running Helm: "helm {" ".join(helm_args)}"')
+            helm_cmd = helm(helm_args, _out="/dev/stdout")
+        except ErrorReturnCode as e:
+            if args["force"]:
+                logging.info(f'Deleting release failed. Ignoring due to force true.')
+                pass
+            else:
+                raise(e)
 
         if args["delete_namespace"]:
-            logging.info(f'Deleting namespace {args["helm_namespace"]}.')
-            kubectl("delete", "namespace", args["helm_namespace"])
+            try:
+                logging.info(f'Deleting namespace {args["helm_namespace"]}.')
+                kubectl("delete", "namespace", args["helm_namespace"])
+            except ErrorReturnCode as e:
+                if args["force"]:
+                    logging.info(f'Deleting namespace failed. Ignoring due to force true.')
+                    pass
+                else:
+                    raise(e)
+
     else:
         # Process "values_file" with env2helm
         if "helm_values_file" in args:

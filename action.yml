@@ -62,6 +62,9 @@ inputs:
   delete_namespace:
     description: 'Will delete the namespace provided.'
     required: false
+  force:
+    description: 'Will not fail if the release or namespace is missing during deletion.'
+    required: false
 runs:
   using: 'docker'
   image: 'Dockerfile'
