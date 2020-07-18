@@ -76,8 +76,13 @@ def main():
             helm_extra_args.append("--debug")
         if "helm_timeout" in args and args["helm_timeout"]:
             helm_extra_args += ["--timeout", f'{args["helm_timeout"]}s']
+
+        logging.info("Current Helm status:")
+        helm("status", args["helm_release"], _out="/dev/stdout")
+
         helm_args = ["--namespace", args["helm_namespace"], "uninstall", args["helm_release"]]
         helm_args += helm_extra_args
+
         try:
             logging.info(f'Running Helm: "helm {" ".join(helm_args)}"')
             helm_cmd = helm(helm_args, _out="/dev/stdout")
