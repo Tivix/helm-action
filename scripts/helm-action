@@ -101,7 +101,7 @@ def main():
 
         try:
             logging.info("Current Helm status:")
-            helm("status", args["helm_release"], _out="/dev/stdout")
+            helm("--namespace", args["helm_namespace"], "status", args["helm_release"], _out="/dev/stdout")
         except ErrorReturnCode as e:
             if args["force"]:
                 logging.info(f"Release not found. Ignoring due to force true.")
