@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 from re import sub
-from sh import kubectl, helm, env2helm, stern, ErrorReturnCode, ErrorReturnCode_1, TimeoutException
+from sh import (
+    kubectl,
+    helm,
+    env2helm,
+    stern,
+    ErrorReturnCode,
+    ErrorReturnCode_1,
+    TimeoutException,
+)
 from sys import stdout
 import os
 import logging
@@ -9,12 +17,18 @@ import logging
 def main():
     args = prepinput("debug", boolean=True)
     if args["debug"]:
-        logging.basicConfig(format="%(levelname)s: %(message)s", stream=stdout, level=logging.DEBUG)
+        logging.basicConfig(
+            format="%(levelname)s: %(message)s", stream=stdout, level=logging.DEBUG
+        )
     else:
-        logging.basicConfig(format="%(levelname)s: %(message)s", stream=stdout, level=logging.INFO)
+        logging.basicConfig(
+            format="%(levelname)s: %(message)s", stream=stdout, level=logging.INFO
+        )
     logging.getLogger("sh").setLevel(logging.WARNING)
 
-    args = prepinput("kube_config", "helm_release", "helm_namespace", args=args, required=True)
+    args = prepinput(
+        "kube_config", "helm_release", "helm_namespace", args=args, required=True
+    )
     args = prepinput("kube_context", "stubify_vars", "helm_timeout", args=args)
     args = prepinput("uninstall", args=args, boolean=True)
     if args["uninstall"]:
@@ -23,11 +37,17 @@ def main():
     else:
         args = prepinput("helm_chart", args=args, required=True)
         args = prepinput("helm_values_file", args=args)
-        args = prepinput("helm_atomic", "helm_wait", "tail", "rollout", args=args, boolean=True)
+        args = prepinput(
+            "helm_atomic", "helm_wait", "tail", "rollout", args=args, boolean=True
+        )
         if args["tail"]:
-            args = prepinput("tail_selector", "tail_until", "tail_timeout", args=args, required=True)
+            args = prepinput(
+                "tail_selector", "tail_until", "tail_timeout", args=args, required=True
+            )
         if args["rollout"]:
-            args = prepinput("rollout_deployment", "rollout_timeout", args=args, required=True)
+            args = prepinput(
+                "rollout_deployment", "rollout_timeout", args=args, required=True
+            )
 
     if "stubify_vars" in args:
         args["stubify_vars"] = strtolist(args["stubify_vars"])
@@ -35,7 +55,9 @@ def main():
     # Write 'kube_config' contents to ~/.kube/config
     writeconfig(args["kube_config"], os.path.expanduser("~") + "/.kube/config")
     if args["debug"]:
-        logging.debug(f'Written {os.path.expanduser("~") + "/.kube/config"} with contents:')
+        logging.debug(
+            f'Written {os.path.expanduser("~") + "/.kube/config"} with contents:'
+        )
         for line in catfile(os.path.expanduser("~") + "/.kube/config"):
             logging.debug(line)
 
@@ -77,10 +99,22 @@ def main():
         if "helm_timeout" in args and args["helm_timeout"]:
             helm_extra_args += ["--timeout", f'{args["helm_timeout"]}s']
 
-        logging.info("Current Helm status:")
-        helm("status", args["helm_release"], _out="/dev/stdout")
+        try:
+            logging.info("Current Helm status:")
+            helm("status", args["helm_release"], _out="/dev/stdout")
+        except ErrorReturnCode as e:
+            if args["force"]:
+                logging.info(f"Release not found. Ignoring due to force true.")
+                pass
+            else:
+                raise (e)
 
-        helm_args = ["--namespace", args["helm_namespace"], "uninstall", args["helm_release"]]
+        helm_args = [
+            "--namespace",
+            args["helm_namespace"],
+            "uninstall",
+            args["helm_release"],
+        ]
         helm_args += helm_extra_args
 
         try:
@@ -88,10 +122,10 @@ def main():
             helm_cmd = helm(helm_args, _out="/dev/stdout")
         except ErrorReturnCode as e:
             if args["force"]:
-                logging.info(f'Deleting release failed. Ignoring due to force true.')
+                logging.info(f"Deleting release failed. Ignoring due to force true.")
                 pass
             else:
-                raise(e)
+                raise (e)
 
         if args["delete_namespace"]:
             try:
@@ -99,10 +133,12 @@ def main():
                 kubectl("delete", "namespace", args["helm_namespace"])
             except ErrorReturnCode as e:
                 if args["force"]:
-                    logging.info(f'Deleting namespace failed. Ignoring due to force true.')
+                    logging.info(
+                        f"Deleting namespace failed. Ignoring due to force true."
+                    )
                     pass
                 else:
-                    raise(e)
+                    raise (e)
 
     else:
         # Process "values_file" with env2helm
@@ -127,7 +163,16 @@ def main():
             helm_extra_args.append("--wait")
         if "helm_timeout" in args and args["helm_timeout"]:
             helm_extra_args += ["--timeout", f'{args["helm_timeout"]}s']
-        helm_args = ["upgrade", args["helm_release"], "--install", "--namespace", args["helm_namespace"], "--create-namespace", "--values", values_file]
+        helm_args = [
+            "upgrade",
+            args["helm_release"],
+            "--install",
+            "--namespace",
+            args["helm_namespace"],
+            "--create-namespace",
+            "--values",
+            values_file,
+        ]
         helm_args += helm_extra_args
         helm_args.append(args["helm_chart"])
         helm_exit_code = 0
@@ -145,26 +190,49 @@ def main():
                 raise (e)
 
         logging.debug(f'Setting kubectl namespace to {args["helm_namespace"]}')
-        kubectl_cmd = kubectl("config", "set-context", "--current", "--namespace", args["helm_namespace"])
+        kubectl_cmd = kubectl(
+            "config", "set-context", "--current", "--namespace", args["helm_namespace"]
+        )
         logging.debug(kubectl_cmd)
 
         # Pod log tailing
         if args["tail"]:
             print()
-            logging.info(f'Tailing pods matching selector "{args["tail_selector"]}". Waiting for string "{args["tail_until"]}".')
-            result = taillogs(selector=args["tail_selector"], string=args["tail_until"], timeout=int(args["tail_timeout"]))
+            logging.info(
+                f'Tailing pods matching selector "{args["tail_selector"]}". Waiting for string "{args["tail_until"]}".'
+            )
+            result = taillogs(
+                selector=args["tail_selector"],
+                string=args["tail_until"],
+                timeout=int(args["tail_timeout"]),
+            )
             if result:
                 logging.info(f'Found string "{args["tail_until"]}". Finishing tail.')
             else:
-                logging.error(f'Timeout out after {args["tail_timeout"]} seconds. Failing.')
+                logging.error(
+                    f'Timeout out after {args["tail_timeout"]} seconds. Failing.'
+                )
                 exit(2)
 
         if args["rollout"] and helm_exit_code == 0:
-            deployment = "deployment/" + args["rollout_deployment"].replace("deployment/", "")
-            kubectl_args = ["rollout", "status", "--watch", "--timeout", f'{args["rollout_timeout"]}s', deployment]
+            deployment = "deployment/" + args["rollout_deployment"].replace(
+                "deployment/", ""
+            )
+            kubectl_args = [
+                "rollout",
+                "status",
+                "--watch",
+                "--timeout",
+                f'{args["rollout_timeout"]}s',
+                deployment,
+            ]
             print()
-            logging.info(f'Waiting {args["rollout_timeout"]} seconds for {deployment} to rollout.')
-            logging.debug(f'Will wait for rollout of {deployment} using "kubectl {" ".join(kubectl_args)}"')
+            logging.info(
+                f'Waiting {args["rollout_timeout"]} seconds for {deployment} to rollout.'
+            )
+            logging.debug(
+                f'Will wait for rollout of {deployment} using "kubectl {" ".join(kubectl_args)}"'
+            )
             kubectl_cmd = kubectl(kubectl_args, _out="/dev/stdout")
 
         print()
@@ -233,7 +301,14 @@ def prepinput(*inputs, args={}, required=False, boolean=False):
 
 def taillogs(selector, string, timeout):
     try:
-        process = stern("--selector", selector, _timeout=timeout, _iter=True, _bg=True, _bg_exc=False)
+        process = stern(
+            "--selector",
+            selector,
+            _timeout=timeout,
+            _iter=True,
+            _bg=True,
+            _bg_exc=False,
+        )
         for line in process:
             print(line.rstrip())
             if string in line:
