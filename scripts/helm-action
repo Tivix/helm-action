@@ -250,7 +250,11 @@ def main():
 
 
 def writeconfig(content, path):
-    os.mkdir(os.path.dirname(path))
+    config_dir = os.path.dirname(path)
+    try:
+        os.mkdir(config_dir)
+    except FileExistsError:
+        logging.warning(f"{config_dir} already exists.")
     with open(path, "w") as file:
         file.write(content)
     os.chmod(path, 0o700)
