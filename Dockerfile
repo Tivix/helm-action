@@ -1,4 +1,4 @@
-FROM alpine:3.11
+FROM alpine:3.14
 
 ENV PYTHONUNBUFFERED=1
 
@@ -15,9 +15,9 @@ RUN apk add --no-cache \
     curl \
     ca-certificates \
     python3 \
-    bash \
+    py3-pip \
     jq &&\
-    pip3 --no-cache-dir install \
+    pip --no-cache-dir install \
     ruamel.yaml==0.16.10 \
     awscli==1.18.61 \
     sh==1.13.1
